@@ -1,98 +1,50 @@
 provider "aws" {
   region = "eu-central-1"  # Change to your preferred region
 }
-
-resource "aws_s3_bucket" "emrankia" {
-  bucket = "emrankiaterraform"
-
+module "s3_bucket" {
+  source      = "./modules/aws_s3_bucket"
+  s3b_bucket_name = var.s3b_bucket_name
 }
 
-# resource "null_resource" "empty_bucket" {
-#   provisioner "local-exec" {
-#     command = <<EOT
-#       aws s3 rm s3://${aws_s3_bucket.emrankia.bucket} --recursive
-#     EOT
-#   }
-
-#   # Ensure this runs before the bucket is destroyed
-#   depends_on = [aws_s3_bucket.emrankia]
-# }
-
-resource "aws_s3_bucket_versioning" "versioning_example" {
-  bucket = aws_s3_bucket.emrankia.id
-  versioning_configuration {
-    status = "Disabled"
-  }
+module "s3_bucket_versioning" {
+  source      = "./modules/aws_s3_bucket_versioning"
+  s3bv_bucket = module.s3_bucket.bucket_id
+  s3bv_status = "Disabled"  # You can change this value to "Disabled" if desired
 }
 
-resource "aws_s3_bucket_server_side_encryption_configuration" "example" {
-  bucket = aws_s3_bucket.emrankia.id
-
-  rule {
-    apply_server_side_encryption_by_default {
-      sse_algorithm     = "AES256"  # SSE-S3 for Amazon S3-managed keys
-    }
-    bucket_key_enabled = true  # Enable Bucket Key
-  }
+module "s3_bucket_encryption" {
+  source                 = "./modules/aws_s3_bucket_encryption"
+  s3bse_bucket           = module.s3_bucket.bucket_id
+  s3bse_sse_algorithm    = var.s3bse_sse_algorithm  # Optional, uses default value if not set
+  s3bse_bucket_key_enabled = var.s3bse_bucket_key_enabled  # Optional, uses default value if not set
 }
 
-resource "aws_s3_bucket_public_access_block" "emrankia" {
-  bucket = aws_s3_bucket.emrankia.bucket
-
-  block_public_acls   = false
-  block_public_policy = false
+module "s3_bucket_public_access_block" {
+  source                 = "./modules/aws_s3_bucket_public_access_block"
+  s3bpab_bucket          = module.s3_bucket.bucket_id
+  s3bpab_block_public_acls   = var.s3bpab_block_public_acls   # Optional, uses default value if not set
+  s3bpab_block_public_policy = var.s3bpab_block_public_policy # Optional, uses default value if not set
 }
-
-###########################################################################################
-###########################################################################################
-###########################################################################################
-
-
-# # Create an SQS queue for notifications
-# resource "aws_sqs_queue" "sqs_notification" {
-#   name = "sqs_notification"
-# }
-
-# # Add SQS queue policy to allow S3 to send messages
-# resource "aws_sqs_queue_policy" "sqs_notification_policy" {
-#   queue_url = aws_sqs_queue.sqs_notification.id
-
-#   policy = <<POLICY
-# {
-#   "Version": "2012-10-17",
-#   "Id": "sqs_notificationPolicy",
-#   "Statement": [
-#     {
-#       "Effect": "Allow",
-#       "Principal": "*",
-#       "Action": "sqs:SendMessage",
-#       "Resource": "${aws_sqs_queue.sqs_notification.arn}",
-#       "Condition": {
-#         "ArnEquals": {
-#           "aws:SourceArn": "${aws_s3_bucket.emrankia.arn}"
-#         }
-#       }
-#     }
-#   ]
-# }
-# POLICY
-# }
-
 
 ###########################################################################################
 ###########################################################################################
 ###########################################################################################
 
 # Create an SNS Topic for notifications
-resource "aws_sns_topic" "sns_notification" {
-  name = "S3NotificationTopic"
+module "sns_topic" {
+  source   = "./modules/aws_sns_topic"
+  sns_name = "S3NotificationTopic"  # You can adjust the topic name here
 }
 
-# Create SNS Topic Policy to allow S3 to publish messages to the SNS topic
-resource "aws_sns_topic_policy" "sns_notification_policy" {
-  arn = aws_sns_topic.sns_notification.arn
+# resource "aws_sns_topic" "sns_notification" {
+#   name = "S3NotificationTopic"
+# }
 
-  policy = <<POLICY
+# Create SNS Topic Policy to allow S3 to publish messages to the SNS topic
+module "sns_topic_policy" {
+  source          = "./modules/aws_sns_topic_policy"
+  snstp_arn       = module.sns_topic.sns_topic_arn
+  snstp_policy    = <<POLICY
 {
   "Version": "2012-10-17",
   "Id": "SNSNotificationPolicy",
@@ -101,10 +53,10 @@ resource "aws_sns_topic_policy" "sns_notification_policy" {
       "Effect": "Allow",
       "Principal": "*",
       "Action": "sns:Publish",
-      "Resource": "${aws_sns_topic.sns_notification.arn}",
+      "Resource": "${module.sns_topic.sns_topic_arn}",
       "Condition": {
         "ArnEquals": {
-          "aws:SourceArn": "${aws_s3_bucket.emrankia.arn}"
+          "aws:SourceArn": "${module.s3_bucket.bucket_arn}"
         }
       }
     }
@@ -112,15 +64,43 @@ resource "aws_sns_topic_policy" "sns_notification_policy" {
 }
 POLICY
 }
+# resource "aws_sns_topic_policy" "sns_notification_policy" {
+#   arn = module.sns_topic.sns_topic_arn
 
-
+#   policy = <<POLICY
+# {
+#   "Version": "2012-10-17",
+#   "Id": "SNSNotificationPolicy",
+#   "Statement": [
+#     {
+#       "Effect": "Allow",
+#       "Principal": "*",
+#       "Action": "sns:Publish",
+#       "Resource": "${module.sns_topic.sns_topic_arn}",
+#       "Condition": {
+#         "ArnEquals": {
+#           "aws:SourceArn": "${module.s3_bucket.bucket_arn}"
+#         }
+#       }
+#     }
+#   ]
+# }
+# POLICY
+# }
 
 # Add an email subscription to the SNS topic
-resource "aws_sns_topic_subscription" "email_subscription" {
-  topic_arn = aws_sns_topic.sns_notification.arn
-  protocol  = "email"
-  endpoint  = "emran.kia@gmail.com"
+module "sns_topic_subscription" {
+  source        = "./modules/aws_sns_topic_subscription"
+  snss_topic_arn = module.sns_topic.sns_topic_arn
+  snss_protocol  = "email"
+  snss_endpoint  = "emran.kia@gmail.com"
 }
+
+# resource "aws_sns_topic_subscription" "email_subscription" {
+#   topic_arn = module.sns_topic.sns_topic_arn
+#   protocol  = "email"
+#   endpoint  = "emran.kia@gmail.com"
+# }
 ###########################################################################################
 ###########################################################################################
 ###########################################################################################
@@ -150,22 +130,32 @@ resource "aws_sns_topic_subscription" "email_subscription" {
 # }
 
 # Create an S3 bucket notification to trigger both SNS and SQS on object creation events
-resource "aws_s3_bucket_notification" "emrankia_notification" {
-  bucket = aws_s3_bucket.emrankia.id
+module "s3_bucket_notification" {
+  source        = "./modules/aws_s3_bucket_notification"
+  s3bkn_bucket_id  = module.s3_bucket.bucket_id
+  s3bkn_queue_arn  = ""#module.sqs_queue.sqs_queue_arn
+  s3bkn_events     = ["s3:ObjectCreated:*", "s3:ObjectRemoved:*"]
+  s3bkn_topic_arn  = module.sns_topic.sns_topic_arn  # Optional, if you use SNS topic uncomment and set
+  # s3bkn_depends_on = [module.sqs_queue_policy]  # Optional, include other dependencies as needed
+}
 
-#   queue {
-#     queue_arn = aws_sqs_queue.sqs_notification.arn
-#     events    = ["s3:ObjectCreated:*", "s3:ObjectRemoved:*]
+
+# resource "aws_s3_bucket_notification" "emrankia_notification" {
+#   bucket = module.s3_bucket.bucket_id
+
+# #   queue {
+# #     queue_arn = aws_sqs_queue.sqs_notification.arn
+# #     events    = ["s3:ObjectCreated:*", "s3:ObjectRemoved:*]
+# #   }
+
+#   topic {
+#     topic_arn = module.sns_topic.sns_topic_arn
+#     events    = ["s3:ObjectCreated:*", "s3:ObjectRemoved:*"]
 #   }
 
-  topic {
-    topic_arn = aws_sns_topic.sns_notification.arn
-    events    = ["s3:ObjectCreated:*", "s3:ObjectRemoved:*"]
-  }
-
-  depends_on = [
-    # aws_sqs_queue_policy.sqs_notification_policy,
-    aws_sns_topic_policy.sns_notification_policy
-  ]
-}
+#   depends_on = [
+#     # aws_sqs_queue_policy.sqs_notification_policy,
+#     module.sns_topic_policy
+#   ]
+# }
 
