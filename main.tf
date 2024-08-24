@@ -7,6 +7,17 @@ resource "aws_s3_bucket" "emrankia" {
 
 }
 
+# resource "null_resource" "empty_bucket" {
+#   provisioner "local-exec" {
+#     command = <<EOT
+#       aws s3 rm s3://${aws_s3_bucket.emrankia.bucket} --recursive
+#     EOT
+#   }
+
+#   # Ensure this runs before the bucket is destroyed
+#   depends_on = [aws_s3_bucket.emrankia]
+# }
+
 resource "aws_s3_bucket_versioning" "versioning_example" {
   bucket = aws_s3_bucket.emrankia.id
   versioning_configuration {
@@ -37,35 +48,35 @@ resource "aws_s3_bucket_public_access_block" "emrankia" {
 ###########################################################################################
 
 
-# Create an SQS queue for notifications
-resource "aws_sqs_queue" "sqs_notification" {
-  name = "sqs_notification"
-}
+# # Create an SQS queue for notifications
+# resource "aws_sqs_queue" "sqs_notification" {
+#   name = "sqs_notification"
+# }
 
-# Add SQS queue policy to allow S3 to send messages
-resource "aws_sqs_queue_policy" "sqs_notification_policy" {
-  queue_url = aws_sqs_queue.sqs_notification.id
+# # Add SQS queue policy to allow S3 to send messages
+# resource "aws_sqs_queue_policy" "sqs_notification_policy" {
+#   queue_url = aws_sqs_queue.sqs_notification.id
 
-  policy = <<POLICY
-{
-  "Version": "2012-10-17",
-  "Id": "sqs_notificationPolicy",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Principal": "*",
-      "Action": "sqs:SendMessage",
-      "Resource": "${aws_sqs_queue.sqs_notification.arn}",
-      "Condition": {
-        "ArnEquals": {
-          "aws:SourceArn": "${aws_s3_bucket.emrankia.arn}"
-        }
-      }
-    }
-  ]
-}
-POLICY
-}
+#   policy = <<POLICY
+# {
+#   "Version": "2012-10-17",
+#   "Id": "sqs_notificationPolicy",
+#   "Statement": [
+#     {
+#       "Effect": "Allow",
+#       "Principal": "*",
+#       "Action": "sqs:SendMessage",
+#       "Resource": "${aws_sqs_queue.sqs_notification.arn}",
+#       "Condition": {
+#         "ArnEquals": {
+#           "aws:SourceArn": "${aws_s3_bucket.emrankia.arn}"
+#         }
+#       }
+#     }
+#   ]
+# }
+# POLICY
+# }
 
 
 ###########################################################################################
@@ -153,7 +164,7 @@ resource "aws_s3_bucket_notification" "emrankia_notification" {
   }
 
   depends_on = [
-    aws_sqs_queue_policy.sqs_notification_policy,
+    # aws_sqs_queue_policy.sqs_notification_policy,
     aws_sns_topic_policy.sns_notification_policy
   ]
 }
